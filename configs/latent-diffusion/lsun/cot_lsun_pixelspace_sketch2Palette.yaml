@@ -1,0 +1,129 @@
+model:
+  base_learning_rate: 4.0e-04
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0195
+    num_timesteps_cond: 1
+    log_every_t: 5
+    timesteps: 50
+    loss_type: l2  # [l1, l2, cls]
+    first_stage_key: image
+    cond_stage_key: sketch
+    cot_stage_key: "sketch"
+    binary_out: False  # 
+    identity_epochs: 0  # [0, int] --> zero mean it is deactivated
+    l_simple_weight: 1.
+    contrast_patch_loss_flag: False  # ["True", "False"]    True--> Activate the Contrastive Pathc based loss.
+    l_contrast_patch_loss_weight: 0.0
+    parameterization: "x0"  # ["eps", "x0", "XtminX0", "YandN", "Weps", "WYandN"]  "eps" means only noise "XtminX0" only for BBDM case means (Xt-X0) term
+    CoT_flag: True  # ["True", "False"]    True--> Activate DDPM.   False--> Original LDM
+    steps_gap: 1
+    CoT_timesteps: 50
+    BBDM_noise: 2  # [0.5, 2, 8]   0.25--> for 1st stage and "triangle".   (Works only for CoT)
+    BBDM_noise_schedule: "bridge" # ["bridge", "log", "linear", "triangle"] Works only for CoT
+    image_size: 64
+    channels: 3
+    monitor: val/loss_simple_ema
+    cond_stage_trainable: False
+    concat_mode: False
+    conditioning_key: "concat"  # ['None', 'concat', 'crossattn']
+    beta_schedule: "linear"  # Skewed-BBDM  ["linear", "sin"]
+    forward_type: "weighting"  # ["weighting", "pixelate"]
+    highres_distill_loss: false
+    scale_by_std: False
+
+    #scheduler_config:
+    #  target: ldm.lr_scheduler.MilestonesLR
+    #  params:
+    #    milestones: [20, 40, 60]
+    #    gamma: 0.2  # divide by 5
+    #    verbose: True
+
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64
+        in_channels: 6
+        out_channels: 3
+        model_channels: 32
+        attention_resolutions: [8]  # Large-->[ 2, 4, 8] (32, 16, 8)  Medium-->[8] Small-->[8]
+        num_res_blocks: 1  # Large-->2  Medium-->1  Small-->0
+        channel_mult: [1, 1, 2, 3]  # XLarge--> [ 1, 4, 8]  Large--> [1,2,3,4]  Medium-->[1,2,3,4]  Small-->[1, 1, 1,1]
+        num_heads: 1
+
+    first_stage_config:
+      target: ldm.models.autoencoder.IdentityFirstStage  # Image Space
+      params:
+        size: 64
+    
+    cond_stage_config:
+      target: ldm.modules.encoders.modules.ConvNextImageEmbedder
+      params:
+        img_encoder: "raw_img"  # "convnextv2" or "raw_img"
+        freeze: True
+        unet_res: 64
+    cot_stage_config: __is_unconditional__
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 32
+    num_workers: 5
+    wrap: false
+    train:
+      target: ldm.data.lsun.LSUNChurchesCoT
+      params:
+        txt_file: "data/lsun/church_outdoor_train.txt"
+        data_root: "data/lsun/churches"
+        size: 256
+        aug_y_p: 0  # Integer represents percentage of augmentation for each type. Total = N*aug_y
+        aug_types: [] # ["masking", "downsampling", "edges"]
+        drop_y_p: 0  # Integer represents percentage of dropout the condition totaly and replace it by black image.
+        cot_stages: ["sketch"]  # ['edges', 'sam', 'sam_edges', 'sketch', 'RGB', 'BlackBinary', 'Black'] 'randBW'--> Random Black and White.
+        cot_process_type: "with_norm"  # ["with_norm", "no_norm"] --> "with_norm" should be with raw image
+        binary_y: True  # If true will convert the input condition (y) to binary input
+        add_noise_y: True  # If true then we will add a noise on the condition y to implement the truncation trick for fusion
+        gray_y: False  # 1D vs 3D
+        truncation_ratio: -1  # [0.025, 0.05, 0.1]
+        timesteps: 50
+        timesteps_1ststage: 50
+        gray_flg: False  # [True, False]
+        palette: False # [True, False]  If activated --> will add palette to the input (e.g., sketch) Will get the palette from pixilation.
+        out_palette: True
+        blur_radius: [10, 15]
+
+    validation:
+      target: ldm.data.lsun.LSUNChurchesCoT
+      params:
+        txt_file: "data/lsun/church_outdoor_val.txt"
+        data_root: "data/lsun/churches"
+        size: 256
+        cot_stages: ["sketch"]  # ['edges', 'sam', 'sam_edges', 'sketch', 'RGB', 'BlackBinary', 'Black'] 'randBW'--> Random Black and White.
+        cot_process_type: "with_norm"  # ["with_norm", "no_norm"] --> "with_norm" should be with raw image
+        aug_y_p: 0  # Integer represents percentage of augmentation for each type. Total = N*aug_y
+        aug_types: []
+        drop_y_p: 0  # Integer represents percentage of dropout the condition totaly and replace it by black image.
+        binary_y: True  # If true will convert the input condition (y) to binary input
+        add_noise_y: False  # If true then we will add a noise on the condition y to implement the truncation trick for fusion
+        gray_y: False
+        truncation_ratio: -1  # [0.025, 0.05, 0.1]
+        timesteps: 50
+        timesteps_1ststage: 50
+        gray_flg: False  #[True, False]
+        palette: False # [True, False]  If activated --> will add palette to the input (e.g., sketch) Will get the palette from pixilation.
+        out_palette: True
+        blur_radius: [12, 12]
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 1  # 5000
+        max_images: 8  # 8
+        increase_log_steps: False
+
+  trainer:
+    benchmark: True
+    max_epochs: 650

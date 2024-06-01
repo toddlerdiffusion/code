@@ -1,0 +1,106 @@
+model:
+  base_learning_rate: 4.0e-04
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0195
+    num_timesteps_cond: 1
+    log_every_t: 10
+    timesteps: 50
+    loss_type: l2  # [l1, l2, cls]
+    first_stage_key: image
+    cond_stage_key: None
+    cot_stage_key: "Black1D"  # ['edges', 'sam', 'sketch', 'RGB', 'Black1D', 'Black_White']
+    binary_noise: False  # False-->Gausian    True-->bernoulli
+    aug_x: ""  # ["masking", "downsampling"]  # apply this function in the forward process on the output x0
+    l1_sketch_w: 1  # 1--> to disable it (balanced loss for black & white) int--> to weight the white pixels
+    binary_out: False  # 
+    identity_epochs: 0  # [0, int] --> zero mean it is deactivated
+    l_simple_weight: 1.
+    contrast_patch_loss_flag: False  # ["True", "False"]    True--> Activate the Contrastive Pathc based loss.
+    l_contrast_patch_loss_weight: 0.0
+    parameterization: "x0"  # ["eps", "x0", "XtminX0", "YandN", "Weps", "WYandN"]  "eps" means only noise "XtminX0" only for BBDM case means (Xt-X0) term
+    CoT_flag: True  # ["True", "False"]    True--> Activate DDPM.   False--> Original LDM
+    steps_gap: 1
+    CoT_timesteps: 50
+    BBDM_noise: 2  # [0.5, 2, 8]   0.25--> for 1st stage and "triangle".   (Works only for CoT)
+    BBDM_noise_schedule: "bridge" # ["bridge", "log", "linear", "triangle"] Works only for CoT
+    image_size: 64
+    channels: 3
+    monitor: val/loss_simple_ema
+    cond_stage_trainable: False
+    cot_stage_trainable: False
+    concat_mode: False
+    conditioning_key: "None"  # ['None', 'concat', 'crossattn']
+    beta_schedule: "linear"  # Skewed-BBDM  ["linear", "sin"]
+    forward_type: "weighting"  # ["weighting", "pixelate"]
+    highres_distill_loss: false
+    scale_by_std: False
+
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64
+        in_channels: 3
+        out_channels: 3
+        model_channels: 32  # Large 224  # Medium 128  # Small 64    # Tiny 32  # SuperTiny 16  # SuperSuperTiny 8
+        attention_resolutions: [8]  # Large [8,4,2]  # Medium [8] # Small [8]  # Tiny [8]
+        num_res_blocks: 1  # Large 2  # Medium 1  # Small 1    # Tiny 1
+        channel_mult: [1, 1, 2, 3]  # Large [1,2,3,4]  # Medium [1,2,3,4]  # Small [1, 2, 3, 4]   # Tiny [1, 1, 2, 3]  # SuperTiny [1, 1, 2, 4]
+        num_head_channels: 1  # Large 8   # Medium 8  # Small 1   # Tiny 1
+        use_checkpoint: true
+
+    first_stage_config:
+      target: ldm.models.autoencoder.IdentityFirstStage  # Image Space
+      params:
+        size: 64
+    
+    cond_stage_config: __is_unconditional__
+    cot_stage_config: __is_unconditional__
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 64
+    num_workers: 8
+    wrap: false
+    train:
+      target: ldm.data.faceshq.CoTCelebAHQ
+      params:
+        txt_file: "data/celebhq_train.txt"
+        data_root: "/xxx/user/xxx/celebhq/celebhq"
+        size: 256
+        aug_y_p: 0  # Integer represents percentage of augmentation for each type. Total = N*aug_y
+        aug_types: []
+        drop_y_p: 0  # Integer represents percentage of dropout the condition totaly and replace it by black image.
+        cot_stages: ["Black1D"]  # ['edges', 'sam', 'sam_edges', 'sketch', 'RGB', 'Black1D', 'Black_White']
+        cot_process_type: "with_norm"  # ["with_norm", "no_norm"] --> "with_norm" should be with raw image
+        gray_flg: False  # [True, False]
+        palette: False # [True, False]  If activated --> will add palette to the input (e.g., sketch) Will get the palette from pixilation.
+
+    validation:
+      target: ldm.data.faceshq.CoTCelebAHQ
+      params:
+        txt_file: "data/celebhq_val.txt"
+        data_root: "/xxx/user/xxx/celebhq/celebhq"
+        aug_y_p: 0  # Integer represents percentage of augmentation for each type. Total = N*aug_y
+        aug_types: []
+        drop_y_p: 0  # Integer represents percentage of dropout the condition totaly and replace it by black image.
+        size: 256
+        cot_stages: ["Black1D"]  # ['edges', 'sam', 'sam_edges', 'sketch', 'RGB', 'Black1D', 'Black_White']
+        cot_process_type: "with_norm"  # ["with_norm", "no_norm"] --> "with_norm" should be with raw image
+        gray_flg: False  #[True, False]
+        palette: False # [True, False]  If activated --> will add palette to the input (e.g., sketch) Will get the palette from pixilation.
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 1  # 5000
+        max_images: 8  # 8
+        increase_log_steps: False
+
+  trainer:
+    benchmark: True
+    max_epochs: 50

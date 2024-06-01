@@ -1,0 +1,128 @@
+model:
+  base_learning_rate: 1.0e-04
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0195
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    first_stage_key: image
+    cond_stage_key: "caption" # caption
+    image_size: 64
+    channels: 3
+    cond_stage_trainable: false  # true
+    conditioning_key: "crossattn" # crossattn
+    monitor: val/loss_simple_ema
+
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64
+        in_channels: 3
+        out_channels: 3
+        model_channels: 128
+        attention_resolutions: [ 2, 4, 8]  # Large-->[ 2, 4, 8] (32, 16, 8)  Medium-->[8] Small-->[8]
+        num_res_blocks: 2  # Large-->2  Medium-->1  Small-->0
+        channel_mult: [1, 2, 3, 4]  # XLarge--> [ 1, 4, 8]  Large--> [1,2,3,4]  Medium-->[1,2,3,4]  Small-->[1, 1, 1,1]
+        num_heads: 8
+        use_spatial_transformer: true
+        transformer_depth: 1
+        context_dim: 768
+        use_checkpoint: true
+        legacy: False
+
+    first_stage_config:
+      target: ldm.models.autoencoder.VQModelInterface
+      params:
+        embed_dim: 3
+        n_embed: 8192
+        ckpt_path: models/first_stage_models/vq-f4/model.ckpt
+        ddconfig:
+          double_z: false
+          z_channels: 3
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+        lossconfig:
+          target: torch.nn.Identity
+        load_precomp_emd: True
+
+    #cond_stage_config: "__is_unconditional__"
+    
+    #cond_stage_config:
+    #  target: ldm.modules.encoders.modules.BERTEmbedder
+    #  params:
+    #    n_embed: 640
+    #    n_layer: 32
+
+    cond_stage_config:
+      target: ldm.modules.encoders.modules.FrozenCLIPEmbedder_HuggingFace
+      params:
+        version: 'openai/clip-vit-large-patch14'
+        load_precomp_emd: True
+
+    #cond_stage_config:
+    #  target: ldm.modules.encoders.modules.T5TextEncoder
+    #  params:
+    #    variant: 't5-base'
+
+#data:
+#  target: main.DataModuleFromConfig
+#  params:
+#    batch_size: 48
+#    num_workers: 5
+#    wrap: false
+#    train:
+#      target: ldm.data.coco.COCOtrain
+#      params:
+#        size: 256
+#    validation:
+#      target: ldm.data.coco.COCOval
+#      params:
+#        size: 256
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 64
+    num_workers: 16
+    wrap: false
+    train:
+      target: ldm.data.coco.COCO_load_emb
+      params:
+        img_emb_path: "/xxx/scratch/xxx/COCO_dataset_embedding/train2017_vq4"
+        txt_emb_path: "/xxx/scratch/xxx/COCO_dataset_embedding/train2017_cliptxt"
+        caption_root: "/xxx/ai/reference/CV/COCO/cocoapi/data/2017/annotations/captions/train/captions_train2017.json"
+        imageid2filename_dict_path: "data/coco/coco_train_imgid2name_dict.json"
+        size: 256
+    validation:
+      target: ldm.data.coco.COCO_load_emb
+      params:
+        img_emb_path: "/xxx/scratch/xxx/COCO_dataset_embedding/val2017_vq4"
+        txt_emb_path: "/xxx/scratch/xxx/COCO_dataset_embedding/val2017_cliptxt"
+        caption_root: "/xxx/ai/reference/CV/COCO/cocoapi/data/2017/annotations/captions/val/captions_val2017.json"
+        imageid2filename_dict_path: "data/coco/coco_val_imgid2name_dict.json"
+        size: 256
+
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 1  # 5000
+        max_images: 8  # 8
+        increase_log_steps: False
+
+  trainer:
+    benchmark: True
+    max_epochs: 650
